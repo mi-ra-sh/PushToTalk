@@ -7,8 +7,6 @@ import os
 import json
 import logging
 from logging.handlers import RotatingFileHandler
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 from collections import OrderedDict
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,15 +14,41 @@ CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
 LOG_PATH = os.path.join(BASE_DIR, "push_to_talk.log")
 HISTORY_PATH = os.path.join(BASE_DIR, "history.json")
 
-# Default config values
+# ─── Model Registry ───
+
+# All available models (id → display name)
+MODELS = OrderedDict([
+    ("whisper-v3", "Whisper V3"),
+    ("whisper-v3-turbo", "Whisper V3 Turbo"),
+    ("whisper-v3-fast", "Whisper V3 Fast"),
+    ("whisper-turbo-fast", "Whisper Turbo Fast"),
+])
+
+# Model ID → HuggingFace model name (for HF transformers engines)
+WHISPER_MODEL_NAMES = {
+    "whisper-v3": "openai/whisper-large-v3",
+    "whisper-v3-turbo": "openai/whisper-large-v3-turbo",
+}
+
+# Model ID → faster-whisper model name (for CTranslate2 engines)
+FASTER_WHISPER_MODEL_NAMES = {
+    "whisper-v3-fast": "large-v3",
+    "whisper-turbo-fast": "large-v3-turbo",
+}
+
+# Models that support LoRA adapters
+LORA_COMPATIBLE_MODELS = {"whisper-v3"}
+
+# ─── Config Defaults ───
+
 DEFAULTS = {
     "hotkey": "ctrl_r",
     "language": "en",
+    "selected_model": "whisper-v3",
     "auto_paste": True,
     "auto_enter": False,
     "input_device": "Voicemeeter Out B1",
     "beam_size": 5,
-    "model_name": "openai/whisper-large-v3",
     "use_lora": False,
     "collect_organic_data": False,
     "sync_lang_with_keyboard": True,
@@ -50,7 +74,7 @@ HOTKEY_NAMES = {
     "f20": "F20",
 }
 
-# Language configs (prompt texts for Whisper)
+# Language configs (prompt texts for Whisper code-switching)
 LANG_CONFIGS = {
     "en": {
         "prompt": "Make a commit and push to remote. Merge this branch. Deploy to server. Check the Docker container and Kubernetes cluster.",
@@ -62,12 +86,6 @@ LANG_CONFIGS = {
     },
 }
 
-# Available Whisper models for switching
-AVAILABLE_MODELS = OrderedDict([
-    ("openai/whisper-large-v3", "whisper-large-v3"),
-    ("openai/whisper-large-v3-turbo", "whisper-large-v3-turbo"),
-])
-
 # Sound configs (freq Hz, duration ms)
 SOUNDS = {
     "start": (800, 150),
@@ -76,6 +94,8 @@ SOUNDS = {
     "error": (300, 300),
 }
 
+
+# ─── Config I/O ───
 
 def load_config() -> dict:
     """Load config from JSON file, merging with defaults for missing keys."""
@@ -87,6 +107,21 @@ def load_config() -> dict:
             config.update(user_config)
         except (json.JSONDecodeError, IOError) as e:
             logging.getLogger("ptt").warning(f"Config load error, using defaults: {e}")
+
+    # Migrate old config format (model_name → selected_model)
+    if "model_name" in config and "selected_model" not in config:
+        old_name = config.pop("model_name")
+        for mid, mname in WHISPER_MODEL_NAMES.items():
+            if mname == old_name:
+                config["selected_model"] = mid
+                break
+        else:
+            config["selected_model"] = "whisper-v3"
+
+    # Validate selected_model
+    if config["selected_model"] not in MODELS:
+        config["selected_model"] = "whisper-v3"
+
     return config
 
 
@@ -99,6 +134,8 @@ def save_config(config: dict):
         logging.getLogger("ptt").error(f"Config save error: {e}")
 
 
+# ─── Logging ───
+
 def setup_logging() -> logging.Logger:
     """Setup logging with console (INFO) + rotating file (DEBUG)."""
     logger = logging.getLogger("ptt")
@@ -107,14 +144,12 @@ def setup_logging() -> logging.Logger:
 
     logger.setLevel(logging.DEBUG)
 
-    # Console handler — INFO level, compact format
     import sys
     console = logging.StreamHandler(sys.stdout)
     console.setLevel(logging.INFO)
     console.setFormatter(logging.Formatter("%(message)s"))
     logger.addHandler(console)
 
-    # File handler — DEBUG level, rotating (5MB x 3 backups)
     try:
         file_handler = RotatingFileHandler(
             LOG_PATH, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
@@ -129,6 +164,8 @@ def setup_logging() -> logging.Logger:
 
     return logger
 
+
+# ─── History ───
 
 def load_history() -> list:
     """Load transcription history from file."""
