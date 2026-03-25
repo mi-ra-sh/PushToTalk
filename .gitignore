@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Model files (too large for git)
+whisper_checkpoints/
+whisper_lora_adapter/
+
+# Training data (audio recordings)
+training_data/
+
+# Logs
+*.log
+debug.log
+whisper_logs/
+
+# Runtime data
+history.json

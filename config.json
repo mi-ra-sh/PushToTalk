@@ -1,0 +1,18 @@
+{
+  "hotkey": "ctrl_r",
+  "language": "uk",
+  "auto_paste": true,
+  "auto_enter": false,
+  "input_device": "Voicemeeter Out B1",
+  "beam_size": 5,
+  "model_name": "openai/whisper-large-v3",
+  "use_lora": false,
+  "collect_organic_data": false,
+  "sync_lang_with_keyboard": true,
+  "max_recording_seconds": 120,
+  "sound_volume": 0.1,
+  "no_speech_threshold": 0.6,
+  "realtime_preview": false,
+  "custom_vocabulary": {},
+  "model_reload_interval": 25
+}

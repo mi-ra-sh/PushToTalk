@@ -1,0 +1,12 @@
+{
+  "openai/whisper-large-v3": {
+    "sha": "06f233fe06e710322aca913c1bc4249a0d71fce1",
+    "last_modified": "2024-08-12T10:20:10.000Z",
+    "checked": "2026-03-25T12:48:02.563975"
+  },
+  "openai/whisper-large-v3-turbo": {
+    "sha": "41f01f3fe87f28c78e2fbf8b568835947dd65ed9",
+    "last_modified": "2024-10-04T14:51:11.000Z",
+    "checked": "2026-03-25T12:48:02.774229"
+  }
+}
