@@ -71,14 +71,16 @@ def vad_trim(audio, sample_rate=16000, threshold=0.5):
 class AudioRecorder:
     """Manages audio recording from sounddevice InputStream."""
 
-    def __init__(self, sample_rate=16000, blocksize=4096, device_name=None, max_seconds=120):
+    def __init__(self, sample_rate=16000, blocksize=4096, device_name=None, max_seconds=120, on_max_reached=None):
         self.sample_rate = sample_rate
         self.blocksize = blocksize
         self.max_seconds = max_seconds
         self.max_samples = max_seconds * sample_rate
+        self.on_max_reached = on_max_reached
 
         self._recording = []
         self._is_recording = False
+        self._max_reached = False
         self._lock = threading.Lock()
         self._stream = None
         self._device_index = self._find_device(device_name)
@@ -114,9 +116,11 @@ class AudioRecorder:
                 total = sum(len(chunk) for chunk in self._recording)
                 if total < self.max_samples:
                     self._recording.append(indata.copy().flatten())
-                elif total >= self.max_samples and len(self._recording) > 0:
-                    logger.warning(f"Max recording length ({self.max_seconds}s) reached")
-                    self._is_recording = False
+                elif not self._max_reached:
+                    self._max_reached = True
+                    logger.warning(f"Max recording length ({self.max_seconds}s) reached, stop accumulating")
+                    if self.on_max_reached:
+                        self.on_max_reached()
 
     def start_stream(self):
         """Start the audio input stream."""
@@ -143,6 +147,7 @@ class AudioRecorder:
         with self._lock:
             self._recording = []
             self._is_recording = True
+            self._max_reached = False
 
     def stop_recording(self):
         """Stop recording and return the audio buffer as numpy array, or None if empty."""

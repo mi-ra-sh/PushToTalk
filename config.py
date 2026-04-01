@@ -52,7 +52,7 @@ DEFAULTS = {
     "use_lora": False,
     "collect_organic_data": False,
     "sync_lang_with_keyboard": True,
-    "max_recording_seconds": 120,
+    "max_recording_seconds": 300,
     "sound_volume": 0.1,
     "no_speech_threshold": 0.6,
     "realtime_preview": False,

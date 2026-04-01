@@ -163,6 +163,28 @@ class TrayManager:
             )
         items.append(pystray.MenuItem(f"Клавіша: {hotkey_name}", pystray.Menu(*hotkey_items)))
 
+        # Max recording duration submenu
+        max_sec = self.config.get("max_recording_seconds", 300)
+        duration_options = [30, 60, 120, 180, 300, 600]
+        duration_items = []
+        for sec in duration_options:
+            is_current = sec == max_sec
+            if sec < 60:
+                label = f"{sec}с"
+            else:
+                label = f"{sec // 60} хв"
+            duration_items.append(
+                pystray.MenuItem(
+                    f"{'● ' if is_current else '  '}{label}",
+                    self._make_duration_callback(sec),
+                )
+            )
+        if max_sec < 60:
+            dur_label = f"{max_sec}с"
+        else:
+            dur_label = f"{max_sec // 60} хв"
+        items.append(pystray.MenuItem(f"Макс. запис: {dur_label}", pystray.Menu(*duration_items)))
+
         items.append(pystray.MenuItem("─────────", None, enabled=False))
 
         # History submenu
@@ -214,6 +236,21 @@ class TrayManager:
                 pystray.MenuItem(update_label, pystray.Menu(*update_items))
             )
 
+        # Copy last result
+        if history:
+            last_text = history[-1].get("text", "")
+            last_display = last_text[:40] + ("..." if len(last_text) > 40 else "")
+            items.append(
+                pystray.MenuItem(
+                    f"Скопіювати останнє: {last_display}",
+                    self._make_history_callback(last_text),
+                )
+            )
+        else:
+            items.append(pystray.MenuItem("Скопіювати останнє (немає)", None, enabled=False))
+
+        items.append(pystray.MenuItem("─────────", None, enabled=False))
+
         items.extend([
             pystray.MenuItem("Перезавантажити модель", lambda icon, item: self._on_callback("on_refresh_model")),
             pystray.MenuItem("Вихід", lambda icon, item: self._on_callback("on_exit")),
@@ -240,6 +277,13 @@ class TrayManager:
     def _make_hotkey_callback(self, hotkey_name):
         def callback(icon, item):
             self.callbacks["on_change_hotkey"](hotkey_name)
+        return callback
+
+    def _make_duration_callback(self, seconds):
+        def callback(icon, item):
+            cb = self.callbacks.get("on_change_max_duration")
+            if cb:
+                cb(seconds)
         return callback
 
     def _make_history_callback(self, text):

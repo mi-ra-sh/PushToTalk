@@ -383,6 +383,19 @@ def on_change_hotkey(hotkey_name: str):
     tray.update_menu()
 
 
+def on_change_max_duration(seconds: int):
+    config["max_recording_seconds"] = seconds
+    save_config(config)
+    recorder.max_seconds = seconds
+    recorder.max_samples = seconds * recorder.sample_rate
+    if seconds < 60:
+        label = f"{seconds}с"
+    else:
+        label = f"{seconds // 60} хв"
+    logger.info(f"Макс. запис: {label}")
+    tray.update_menu()
+
+
 # Wire up tray callbacks
 tray.callbacks = {
     "on_toggle_language": on_toggle_language,
@@ -391,6 +404,7 @@ tray.callbacks = {
     "on_refresh_model": on_refresh_model,
     "on_exit": on_exit,
     "on_change_hotkey": on_change_hotkey,
+    "on_change_max_duration": on_change_max_duration,
     "get_language": lambda: state.language,
     "get_history": lambda: state.history,
     "get_engine_status": lambda: state.engine_status,
