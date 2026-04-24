@@ -16,35 +16,37 @@ HISTORY_PATH = os.path.join(BASE_DIR, "history.json")
 
 # ─── Model Registry ───
 
-# All available models (id → display name)
+# Primary runtime is faster-whisper (CTranslate2, float16).
+# HuggingFace transformers is retained only for the LoRA adapter path,
+# since the trained adapter targets `openai/whisper-large-v3`.
 MODELS = OrderedDict([
-    ("whisper-v3", "Whisper V3"),
-    ("whisper-v3-turbo", "Whisper V3 Turbo"),
-    ("whisper-v3-fast", "Whisper V3 Fast"),
-    ("whisper-turbo-fast", "Whisper Turbo Fast"),
+    ("whisper-turbo-fast", "Whisper V3 Turbo (fast)"),   # default
+    ("whisper-v3-fast",    "Whisper V3 (fast)"),         # quality fallback
+    ("whisper-v3",         "Whisper V3 +LoRA"),          # HF, LoRA-only
 ])
 
-# Model ID → HuggingFace model name (for HF transformers engines)
-WHISPER_MODEL_NAMES = {
-    "whisper-v3": "openai/whisper-large-v3",
-    "whisper-v3-turbo": "openai/whisper-large-v3-turbo",
+# Model ID → faster-whisper model name (CTranslate2 engines)
+FASTER_WHISPER_MODEL_NAMES = {
+    "whisper-turbo-fast": "large-v3-turbo",
+    "whisper-v3-fast":    "large-v3",
 }
 
-# Model ID → faster-whisper model name (for CTranslate2 engines)
-FASTER_WHISPER_MODEL_NAMES = {
-    "whisper-v3-fast": "large-v3",
-    "whisper-turbo-fast": "large-v3-turbo",
+# Model ID → HuggingFace model name (HF transformers, LoRA-only path)
+WHISPER_MODEL_NAMES = {
+    "whisper-v3": "openai/whisper-large-v3",
 }
 
 # Models that support LoRA adapters
 LORA_COMPATIBLE_MODELS = {"whisper-v3"}
+
+DEFAULT_MODEL = "whisper-turbo-fast"
 
 # ─── Config Defaults ───
 
 DEFAULTS = {
     "hotkey": "ctrl_r",
     "language": "en",
-    "selected_model": "whisper-v3",
+    "selected_model": DEFAULT_MODEL,
     "auto_paste": True,
     "auto_enter": False,
     "input_device": "Voicemeeter Out B1",
@@ -108,19 +110,31 @@ def load_config() -> dict:
         except (json.JSONDecodeError, IOError) as e:
             logging.getLogger("ptt").warning(f"Config load error, using defaults: {e}")
 
-    # Migrate old config format (model_name → selected_model)
+    # Migrate legacy HF model_name field (pre faster-whisper migration)
     if "model_name" in config and "selected_model" not in config:
         old_name = config.pop("model_name")
-        for mid, mname in WHISPER_MODEL_NAMES.items():
-            if mname == old_name:
-                config["selected_model"] = mid
-                break
+        if old_name == "openai/whisper-large-v3-turbo":
+            config["selected_model"] = "whisper-turbo-fast"
+        elif old_name == "openai/whisper-large-v3":
+            config["selected_model"] = "whisper-v3" if config.get("use_lora") else "whisper-v3-fast"
         else:
-            config["selected_model"] = "whisper-v3"
+            config["selected_model"] = DEFAULT_MODEL
+
+    # Migrate retired HF model ids (whisper-v3-turbo was a HF duplicate of turbo-fast;
+    # non-LoRA whisper-v3 is better served by the CT2 large-v3 build)
+    legacy_id = config.get("selected_model")
+    if legacy_id == "whisper-v3-turbo":
+        config["selected_model"] = "whisper-turbo-fast"
+    elif legacy_id == "whisper-v3" and not config.get("use_lora"):
+        config["selected_model"] = "whisper-v3-fast"
 
     # Validate selected_model
     if config["selected_model"] not in MODELS:
-        config["selected_model"] = "whisper-v3"
+        config["selected_model"] = DEFAULT_MODEL
+
+    # whisper-v3 is the HF LoRA-only path; forcing use_lora=True keeps invariants tight
+    if config["selected_model"] == "whisper-v3":
+        config["use_lora"] = True
 
     return config
 

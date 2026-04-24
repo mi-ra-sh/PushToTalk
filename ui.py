@@ -18,10 +18,9 @@ logger = logging.getLogger("ptt")
 
 # Icon background colors per model family
 MODEL_COLORS = {
-    "whisper-v3":         {"bg": "#1a1a2e", "text": "#FFFFFF"},
-    "whisper-v3-turbo":   {"bg": "#1a2e1a", "text": "#FFFFFF"},
-    "whisper-v3-fast":    {"bg": "#1e1a2e", "text": "#FF9900"},
-    "whisper-turbo-fast": {"bg": "#2e2e1a", "text": "#FF9900"},
+    "whisper-turbo-fast": {"bg": "#2e2e1a", "text": "#FF9900"},  # primary (CT2 turbo)
+    "whisper-v3-fast":    {"bg": "#1e1a2e", "text": "#FF9900"},  # CT2 large-v3
+    "whisper-v3":         {"bg": "#1a1a2e", "text": "#FFFFFF"},  # HF + LoRA
 }
 
 LOADING_COLORS = {"bg": "#4a3a1e", "text": "#FFD700"}
@@ -101,8 +100,7 @@ class TrayManager:
         hotkey_name = HOTKEY_NAMES.get(self.config["hotkey"], self.config["hotkey"])
         engine_status = self.callbacks.get("get_engine_status", lambda: "loaded")()
 
-        if self.config.get("use_lora"):
-            model_display += " +LoRA"
+        # New model labels already carry "+LoRA" suffix where applicable; no extra decoration.
 
         status_str = {"loaded": "", "loading": " [loading...]", "offline": " [OFFLINE]"}.get(
             engine_status, ""
@@ -122,9 +120,13 @@ class TrayManager:
             ),
         ]
 
-        # Model submenu
+        # Model submenu — hide HF+LoRA entry when adapter is missing
+        adapter_dir = os.path.join(BASE_DIR, "whisper_lora_adapter")
+        has_adapter = os.path.isdir(adapter_dir)
         model_items = []
         for mid, mname in MODELS.items():
+            if mid in LORA_COMPATIBLE_MODELS and not has_adapter:
+                continue
             is_current = mid == model_id
             model_items.append(
                 pystray.MenuItem(
@@ -133,17 +135,17 @@ class TrayManager:
                 )
             )
 
-        # LoRA toggle (only for compatible models when adapter exists)
-        adapter_dir = os.path.join(BASE_DIR, "whisper_lora_adapter")
-        if os.path.isdir(adapter_dir):
+        # LoRA toggle — adapter is exclusive to whisper-v3; toggle swaps to
+        # whisper-v3-fast (CT2 base) when turned off. Enabled on both so the
+        # user can flip between base/LoRA in one click.
+        if has_adapter:
             model_items.append(pystray.MenuItem("─────────", None, enabled=False))
-            can_lora = model_id in LORA_COMPATIBLE_MODELS
-            lora_prefix = "● " if self.config.get("use_lora") else "  "
+            lora_on = model_id in LORA_COMPATIBLE_MODELS
+            lora_prefix = "● " if lora_on else "  "
             model_items.append(
                 pystray.MenuItem(
                     f"{lora_prefix}LoRA адаптер",
                     lambda icon, item: self._on_callback("on_toggle_lora"),
-                    enabled=can_lora,
                 )
             )
 

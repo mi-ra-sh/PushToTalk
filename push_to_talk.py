@@ -274,9 +274,8 @@ def switch_engine(new_model_id: str):
                 state.engine.unload()
                 state.engine = None
 
-            # LoRA only for compatible models
-            if new_model_id not in LORA_COMPATIBLE_MODELS:
-                config["use_lora"] = False
+            # LoRA flag tracks the HF+LoRA path exclusively.
+            config["use_lora"] = new_model_id in LORA_COMPATIBLE_MODELS
 
             # Load new
             state.engine = create_engine(new_model_id)
@@ -339,17 +338,23 @@ def on_change_model(model_id: str):
 
 
 def on_toggle_lora():
-    if config["selected_model"] not in LORA_COMPATIBLE_MODELS:
-        return
+    """Toggle LoRA path: whisper-v3 (HF+LoRA) ↔ whisper-v3-fast (CT2 base).
 
-    config["use_lora"] = not config["use_lora"]
-    save_config(config)
-
-    lora_state = "ON" if config["use_lora"] else "OFF"
-    logger.info(f"LoRA: {lora_state}, reloading...")
-
-    # Re-create engine with new LoRA setting
-    switch_engine(config["selected_model"])
+    LoRA is exclusive to the HF whisper-v3 model — the adapter was trained
+    against `openai/whisper-large-v3`. Toggling off moves the user to the
+    CT2 large-v3 build (faster-whisper) which serves the same base model
+    without the adapter.
+    """
+    if config["selected_model"] == "whisper-v3":
+        config["use_lora"] = False
+        save_config(config)
+        logger.info("LoRA: OFF, switching to whisper-v3-fast (CT2 base)...")
+        switch_engine("whisper-v3-fast")
+    else:
+        config["use_lora"] = True
+        save_config(config)
+        logger.info("LoRA: ON, switching to whisper-v3 (HF+LoRA)...")
+        switch_engine("whisper-v3")
 
 
 def on_refresh_model():

@@ -1,8 +1,10 @@
 """
-Whisper Engine — HuggingFace transformers backend
-Supports Whisper Large V3 and V3 Turbo.
-All v1 features: prompt_ids, LoRA, anti-loop, hallucination detection, confidence.
-Model stays on GPU in float16 for fast inference.
+Whisper Engine — HuggingFace transformers backend, LoRA-only path.
+
+Retained solely for the trained LoRA adapter (targets openai/whisper-large-v3).
+Non-LoRA paths are served by faster_whisper_engine (CTranslate2, float16).
+Features: prompt_ids for code-switching, LoRA adapter merge, anti-loop,
+hallucination detection, confidence scoring, audio chunking, preview.
 """
 
 import os
@@ -22,27 +24,23 @@ from text_processing import is_hallucination
 
 logger = logging.getLogger("ptt")
 
-WHISPER_VRAM_MB = {
-    "whisper-v3": 3200,
-    "whisper-v3-turbo": 2700,
-}
+WHISPER_VRAM_MB = 3200  # HF large-v3 + merged LoRA, fp16
 
 
 class WhisperEngine(STTEngine):
-    """Whisper V3 / V3 Turbo backend using HuggingFace transformers.
+    """HuggingFace Whisper large-v3 + merged LoRA adapter.
 
-    Features: prompt_ids for code-switching, LoRA adapters, anti-loop,
-    hallucination detection, confidence scoring, audio chunking, preview.
+    Used only when `selected_model == "whisper-v3"`. For the non-LoRA pathway
+    use FasterWhisperEngine with `whisper-v3-fast` or `whisper-turbo-fast`.
     """
 
     def __init__(self, model_id: str, model_name: str, config: dict):
         self.model_id = model_id
         self.model_name = model_name
-        self.name = f"Whisper ({model_name.split('/')[-1]})"
-        self.VRAM_REQUIRED_MB = WHISPER_VRAM_MB.get(model_id, 3200)
+        self.name = f"Whisper ({model_name.split('/')[-1]}+LoRA)"
+        self.VRAM_REQUIRED_MB = WHISPER_VRAM_MB
 
         self.beam_size = config.get("beam_size", 5)
-        self.use_lora = config.get("use_lora", False)
 
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float16 if self.device == "cuda" else torch.float32
@@ -54,40 +52,40 @@ class WhisperEngine(STTEngine):
         self._gpu_lock = threading.Lock()
 
     def load(self) -> None:
-        """Load Whisper model + optional LoRA + prompt IDs."""
+        """Load HF Whisper base, merge LoRA adapter, prepare prompt IDs."""
         logger.info(f"Loading {self.name}...")
 
         self.processor = WhisperProcessor.from_pretrained(
             self.model_name, language="en", task="transcribe"
         )
 
-        if self.use_lora:
-            self.model = WhisperForConditionalGeneration.from_pretrained(
-                self.model_name, dtype=torch.float32
+        adapter_dir = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "whisper_lora_adapter",
+        )
+        if not os.path.isdir(adapter_dir):
+            raise FileNotFoundError(
+                f"LoRA adapter not found at {adapter_dir}. "
+                f"WhisperEngine is LoRA-only; use faster-whisper for the base model."
             )
-            adapter_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "whisper_lora_adapter")
-            from peft import PeftModel as PeftModelClass
-            logger.info(f"Loading LoRA adapter from {adapter_dir}...")
-            self.model = PeftModelClass.from_pretrained(self.model, adapter_dir)
-            self.model = self.model.merge_and_unload()
-            self.model.to(self.device, self.dtype)
-            logger.info("LoRA adapter loaded and merged")
-        else:
-            self.model = WhisperForConditionalGeneration.from_pretrained(
-                self.model_name, dtype=self.dtype
-            ).to(self.device)
 
-        self.prompt_ids_map = {}
-        for lang_code, lang_cfg in LANG_CONFIGS.items():
-            self.prompt_ids_map[lang_code] = self.processor.get_prompt_ids(
+        from peft import PeftModel as PeftModelClass
+        base = WhisperForConditionalGeneration.from_pretrained(self.model_name, dtype=torch.float32)
+        logger.info(f"Loading LoRA adapter from {adapter_dir}...")
+        merged = PeftModelClass.from_pretrained(base, adapter_dir).merge_and_unload()
+        self.model = merged.to(self.device, self.dtype)
+
+        self.prompt_ids_map = {
+            lang_code: self.processor.get_prompt_ids(
                 lang_cfg["prompt"], return_tensors="pt"
             ).to(self.device)
+            for lang_code, lang_cfg in LANG_CONFIGS.items()
+        }
 
         self.model.eval()
 
-        model_label = "HF+LoRA" if self.use_lora else "HF base"
         vram = torch.cuda.memory_allocated() / 1024**2 if self.device == "cuda" else 0
-        logger.info(f"{self.name} loaded on {self.device.upper()} ({model_label}, {vram:.0f}MB VRAM)")
+        logger.info(f"{self.name} loaded on {self.device.upper()} ({vram:.0f}MB VRAM)")
 
     def unload(self) -> None:
         """Free GPU memory."""
@@ -258,9 +256,7 @@ class WhisperEngine(STTEngine):
     @property
     def model_info(self) -> str:
         """Short model description for UI."""
-        label = self.model_name.split("/")[-1]
-        if self.use_lora:
-            label += " +LoRA"
+        label = self.model_name.split("/")[-1] + " +LoRA"
         if self.device == "cuda":
             label += " (GPU fp16)"
         return label
