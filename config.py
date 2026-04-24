@@ -101,27 +101,32 @@ SOUNDS = {
 
 def load_config() -> dict:
     """Load config from JSON file, merging with defaults for missing keys."""
-    config = dict(DEFAULTS)
+    user_config: dict = {}
     if os.path.exists(CONFIG_PATH):
         try:
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
                 user_config = json.load(f)
-            config.update(user_config)
         except (json.JSONDecodeError, IOError) as e:
             logging.getLogger("ptt").warning(f"Config load error, using defaults: {e}")
 
-    # Migrate legacy HF model_name field (pre faster-whisper migration)
-    if "model_name" in config and "selected_model" not in config:
-        old_name = config.pop("model_name")
+    config = dict(DEFAULTS)
+    config.update(user_config)
+
+    # Migrate legacy HF model_name field (pre faster-whisper migration).
+    # We key off the *raw user config* — DEFAULTS always contains
+    # selected_model, so checking the merged dict would mask legacy entries.
+    if "model_name" in user_config and "selected_model" not in user_config:
+        old_name = user_config["model_name"]
         if old_name == "openai/whisper-large-v3-turbo":
             config["selected_model"] = "whisper-turbo-fast"
         elif old_name == "openai/whisper-large-v3":
-            config["selected_model"] = "whisper-v3" if config.get("use_lora") else "whisper-v3-fast"
+            config["selected_model"] = "whisper-v3" if user_config.get("use_lora") else "whisper-v3-fast"
         else:
             config["selected_model"] = DEFAULT_MODEL
+    config.pop("model_name", None)
 
     # Migrate retired HF model ids (whisper-v3-turbo was a HF duplicate of turbo-fast;
-    # non-LoRA whisper-v3 is better served by the CT2 large-v3 build)
+    # non-LoRA whisper-v3 is better served by the CT2 large-v3 build).
     legacy_id = config.get("selected_model")
     if legacy_id == "whisper-v3-turbo":
         config["selected_model"] = "whisper-turbo-fast"
@@ -132,9 +137,8 @@ def load_config() -> dict:
     if config["selected_model"] not in MODELS:
         config["selected_model"] = DEFAULT_MODEL
 
-    # whisper-v3 is the HF LoRA-only path; forcing use_lora=True keeps invariants tight
-    if config["selected_model"] == "whisper-v3":
-        config["use_lora"] = True
+    # whisper-v3 is the HF LoRA-only path; forcing use_lora=True keeps invariants tight.
+    config["use_lora"] = config["selected_model"] == "whisper-v3"
 
     return config
 
