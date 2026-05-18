@@ -13,6 +13,7 @@ import pystray
 import pyperclip
 
 from config import LANG_CONFIGS, HOTKEY_NAMES, MODELS, LORA_COMPATIBLE_MODELS, BASE_DIR
+from audio_engine import list_input_devices
 
 logger = logging.getLogger("ptt")
 
@@ -187,6 +188,46 @@ class TrayManager:
             dur_label = f"{max_sec // 60} хв"
         items.append(pystray.MenuItem(f"Макс. запис: {dur_label}", pystray.Menu(*duration_items)))
 
+        # Input device submenu
+        current_device = self.callbacks.get("get_input_device", lambda: "")()
+        try:
+            devices = list_input_devices()
+        except Exception as e:
+            logger.warning(f"list_input_devices failed: {e}")
+            devices = []
+
+        def _short_label(name):
+            return name[:38] + ("…" if len(name) > 38 else "")
+
+        device_items = []
+        for d in devices:
+            is_current = bool(current_device) and current_device.lower() in d["name"].lower()
+            mark = "● " if is_current else "  "
+            host_short = d["host"].replace("Windows ", "")
+            device_items.append(
+                pystray.MenuItem(
+                    f"{mark}{_short_label(d['name'])}  [{host_short}]",
+                    self._make_device_callback(d["name"]),
+                )
+            )
+
+        device_items.append(pystray.MenuItem("─────────", None, enabled=False))
+        is_default = not current_device
+        device_items.append(
+            pystray.MenuItem(
+                f"{'● ' if is_default else '  '}System default",
+                self._make_device_callback(""),
+            )
+        )
+
+        if current_device:
+            header_label = _short_label(current_device)
+        else:
+            header_label = "System default"
+        items.append(
+            pystray.MenuItem(f"Мікрофон: {header_label}", pystray.Menu(*device_items))
+        )
+
         items.append(pystray.MenuItem("─────────", None, enabled=False))
 
         # History submenu
@@ -286,6 +327,13 @@ class TrayManager:
             cb = self.callbacks.get("on_change_max_duration")
             if cb:
                 cb(seconds)
+        return callback
+
+    def _make_device_callback(self, device_name):
+        def callback(icon, item):
+            cb = self.callbacks.get("on_change_device")
+            if cb:
+                cb(device_name)
         return callback
 
     def _make_history_callback(self, text):
