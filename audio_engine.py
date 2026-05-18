@@ -15,6 +15,57 @@ _vad_model = None
 _vad_utils = None
 
 
+# === Input device enumeration ===
+
+HOST_PRIORITY = ["Windows WASAPI", "Windows WDM-KS", "Windows DirectSound", "MME"]
+PSEUDO_DEVICE_PREFIXES = ("Microsoft Sound Mapper", "Primary Sound Capture Driver")
+
+
+def _normalize_device_name(name: str) -> str:
+    """Group-key for deduplicating the same physical device across host APIs.
+
+    Strips everything from the first parenthesis onward — MME truncates
+    device names at ~32 chars, often leaving an unbalanced "(...". Matching
+    only balanced parens would miss those truncations.
+    """
+    import re
+    name = name.lower().strip()
+    name = re.sub(r"\s*\(.*$", "", name)
+    name = re.sub(r"\s+", " ", name)
+    return name
+
+
+def list_input_devices():
+    """Return deduplicated input devices, one entry per real device.
+
+    Returns list of dicts: {index, name, host} sorted by best-host priority
+    then device index. Pseudo-devices (Sound Mapper, Primary Capture Driver)
+    are filtered out — the synthetic "System default" tray entry covers them.
+    """
+    groups = {}
+    for idx, d in enumerate(sd.query_devices()):
+        if d["max_input_channels"] <= 0:
+            continue
+        name = d["name"]
+        if name.startswith(PSEUDO_DEVICE_PREFIXES):
+            continue
+        host = sd.query_hostapis(d["hostapi"])["name"]
+        if host not in HOST_PRIORITY:
+            continue
+        prio = HOST_PRIORITY.index(host)
+        key = _normalize_device_name(name)
+        prev = groups.get(key)
+        if prev is None or prio < prev[0]:
+            groups[key] = (prio, idx, name, host)
+
+    devices = [
+        {"index": idx, "name": name, "host": host}
+        for _, idx, name, host in groups.values()
+    ]
+    devices.sort(key=lambda d: (HOST_PRIORITY.index(d["host"]), d["index"]))
+    return devices
+
+
 def _load_vad():
     """Lazy-load silero-vad model."""
     global _vad_model, _vad_utils
