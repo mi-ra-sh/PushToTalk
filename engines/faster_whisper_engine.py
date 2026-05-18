@@ -26,11 +26,15 @@ FASTER_VRAM_MB = {
 class FasterWhisperEngine(STTEngine):
     """Whisper V3 / V3 Turbo backend using faster-whisper (CTranslate2)."""
 
-    def __init__(self, model_id: str, model_name: str):
+    def __init__(self, model_id: str, model_name: str, config: Optional[dict] = None):
         self.model_id = model_id
         self.model_name = model_name
         self.name = f"Fast ({model_name})"
         self.VRAM_REQUIRED_MB = FASTER_VRAM_MB.get(model_id, 3200)
+
+        cfg = config or {}
+        self.beam_size = cfg.get("beam_size", 5)
+        self.no_speech_threshold = cfg.get("no_speech_threshold", 0.6)
 
         self.model = None
         self._gpu_lock = threading.Lock()
@@ -90,9 +94,14 @@ class FasterWhisperEngine(STTEngine):
                 segments, info = self.model.transcribe(
                     audio,
                     language=lang,
-                    beam_size=5,
-                    vad_filter=True,
+                    beam_size=self.beam_size,
+                    vad_filter=False,
                     initial_prompt=self._get_initial_prompt(lang),
+                    no_speech_threshold=self.no_speech_threshold,
+                    condition_on_previous_text=False,
+                    temperature=[0.0, 0.2, 0.4],
+                    compression_ratio_threshold=2.4,
+                    log_prob_threshold=-1.0,
                 )
 
                 text = " ".join(seg.text.strip() for seg in segments)

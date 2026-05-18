@@ -109,6 +109,7 @@ def create_engine(model_id: str) -> STTEngine:
         return FasterWhisperEngine(
             model_id=model_id,
             model_name=FASTER_WHISPER_MODEL_NAMES[model_id],
+            config=config,
         )
     else:
         raise ValueError(f"Unknown model: {model_id}")

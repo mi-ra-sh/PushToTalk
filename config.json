@@ -5,7 +5,7 @@
   "auto_enter": false,
   "input_device": "Stream Mix (Elgato Virtual Audio)",
   "beam_size": 5,
-  "model_name": "openai/whisper-large-v3",
+  "selected_model": "whisper-v3-fast",
   "use_lora": false,
   "collect_organic_data": false,
   "sync_lang_with_keyboard": true,
