@@ -7,6 +7,15 @@ Modular architecture: config → audio → engines → text → UI → I/O
 import sys
 import os
 
+# Under pythonw.exe (silent VBS launch), sys.stdout/stderr are None.
+# huggingface_hub / tqdm call .flush() on them during model download
+# and crash the engine load with "'NoneType' object has no attribute 'flush'".
+# Replace None streams with a nul sink before anything else touches them.
+if sys.stdout is None:
+    sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+if sys.stderr is None:
+    sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
+
 # Fix Windows console encoding and buffering
 if sys.platform == "win32":
     os.system("chcp 65001 >nul 2>&1")
