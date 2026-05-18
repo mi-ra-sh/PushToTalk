@@ -411,6 +411,22 @@ def on_change_max_duration(seconds: int):
     tray.update_menu()
 
 
+def on_change_device(device_name):
+    """Switch input device live and persist to config."""
+    if device_name == "":
+        device_name = None
+    target = device_name if device_name else "default"
+    logger.info(f"Switching input device → {target}")
+    ok = recorder.set_device(device_name)
+    if ok:
+        config["input_device"] = device_name or ""
+        save_config(config)
+        play_sound("success")
+    else:
+        play_sound("error")
+    tray.update_menu()
+
+
 # Wire up tray callbacks
 tray.callbacks = {
     "on_toggle_language": on_toggle_language,
@@ -420,9 +436,11 @@ tray.callbacks = {
     "on_exit": on_exit,
     "on_change_hotkey": on_change_hotkey,
     "on_change_max_duration": on_change_max_duration,
+    "on_change_device": on_change_device,
     "get_language": lambda: state.language,
     "get_history": lambda: state.history,
     "get_engine_status": lambda: state.engine_status,
+    "get_input_device": lambda: config.get("input_device", ""),
 }
 
 
