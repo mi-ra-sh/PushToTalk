@@ -83,7 +83,7 @@ LANG_CONFIGS = {
         "label": "EN",
     },
     "uk": {
-        "prompt": "Зроби commit і push на remote. Проаналізуй цей код. Відкрий файл і подивись. Закрий термінал. Запусти deploy на server. Перевір Docker container і Kubernetes cluster.",
+        "prompt": "Давай подивимось на код. Я думаю, що так зробимо. Проаналізуй цей файл і подивись логи. Зроби commit і push на remote. Цей pull request треба merge. Перевір hook, перевір cache. Тоді відкрий термінал. Це CLI, daemon, або плагін? Whisper, Ollama, Claude. Це backend, frontend, monorepo.",
         "label": "UK",
     },
 }
