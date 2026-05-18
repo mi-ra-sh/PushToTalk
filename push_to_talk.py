@@ -335,6 +335,18 @@ def resolve_hotkey(hotkey_name: str):
 current_hotkey = resolve_hotkey(config["hotkey"])
 
 
+def _alt_pressed_now():
+    """Live Alt-key state via Win32. Immune to pynput release-event loss
+    when Windows consumes Alt-up for layout switching (Alt+Shift)."""
+    try:
+        import ctypes
+        u32 = ctypes.windll.user32
+        return bool(u32.GetAsyncKeyState(0xA4) & 0x8000) or \
+               bool(u32.GetAsyncKeyState(0xA5) & 0x8000)
+    except Exception:
+        return False
+
+
 # === Tray callbacks ===
 
 def on_toggle_language():
@@ -608,8 +620,12 @@ def on_press(key):
         on_toggle_language()
         return
 
-    # Start recording
-    if key == current_hotkey and not recorder.is_recording and not _alt_held:
+    # Start recording — live Alt check via Win32, not stale _alt_held flag.
+    # Alt+Shift layout switch can swallow Alt-up in pynput, leaving the
+    # tracked flag stuck True and silently disabling PTT.
+    if key == current_hotkey and not recorder.is_recording:
+        if _alt_pressed_now():
+            return
         if state.engine_status != "loaded":
             play_sound("error")
             logger.warning("Engine not ready")
