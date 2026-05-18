@@ -137,23 +137,34 @@ class AudioRecorder:
         self._device_index = self._find_device(device_name)
 
     def _find_device(self, device_name):
-        """Find audio device by name, preferring WASAPI."""
+        """Find audio device by name substring, preferring WASAPI host API.
+
+        Pre-existing code matched "WASAPI" against d['name'], but the host
+        API is on a separate field — so the preference branch never fired
+        and substring matches always returned the first MME entry. Now
+        queries query_hostapis to check the host correctly.
+        """
         if not device_name:
             return None
 
         fallback = None
+        needle = device_name.lower()
         for i, d in enumerate(sd.query_devices()):
-            if device_name in d["name"] and d["max_input_channels"] > 0:
-                if "WASAPI" in d["name"] or "Voicemeeter VAIO" in d["name"]:
-                    logger.info(f"   Мікрофон: {d['name']}")
-                    return i
-                elif fallback is None:
-                    fallback = i
+            if d["max_input_channels"] <= 0:
+                continue
+            if needle not in d["name"].lower():
+                continue
+            host = sd.query_hostapis(d["hostapi"])["name"]
+            if "WASAPI" in host:
+                logger.info(f"   Мікрофон: {d['name']} [{host}]")
+                return i
+            elif fallback is None:
+                fallback = (i, d["name"], host)
 
         if fallback is not None:
-            d = sd.query_devices(fallback)
-            logger.info(f"   Мікрофон: {d['name']}")
-            return fallback
+            i, name, host = fallback
+            logger.info(f"   Мікрофон: {name} [{host}]")
+            return i
 
         logger.warning(f"Пристрій '{device_name}' не знайдено, використовую default")
         return None
@@ -174,7 +185,22 @@ class AudioRecorder:
                         self.on_max_reached()
 
     def start_stream(self):
-        """Start the audio input stream."""
+        """Start the audio input stream.
+
+        For WASAPI devices, request auto_convert so PortAudio resamples
+        from the device's mixer rate (typically 48 kHz) to our 16 kHz
+        target instead of rejecting the open with paInvalidSampleRate.
+        """
+        extra_settings = None
+        if self._device_index is not None:
+            try:
+                d = sd.query_devices(self._device_index)
+                host = sd.query_hostapis(d["hostapi"])["name"]
+                if "WASAPI" in host:
+                    extra_settings = sd.WasapiSettings(auto_convert=True)
+            except Exception:
+                pass
+
         self._stream = sd.InputStream(
             callback=self._audio_callback,
             channels=1,
@@ -182,6 +208,7 @@ class AudioRecorder:
             blocksize=self.blocksize,
             dtype="float32",
             device=self._device_index,
+            extra_settings=extra_settings,
         )
         self._stream.start()
         logger.debug("Audio stream started")
@@ -192,6 +219,33 @@ class AudioRecorder:
             self._stream.stop()
             self._stream.close()
             self._stream = None
+
+    def set_device(self, device_name):
+        """Switch input device live: stop stream, re-resolve index, restart.
+
+        Returns True on success. On failure, tries to restart the previous
+        device and returns False.
+        """
+        previous_index = self._device_index
+        was_running = self._stream is not None
+
+        if was_running:
+            self.stop_stream()
+
+        try:
+            self._device_index = self._find_device(device_name)
+            if was_running:
+                self.start_stream()
+            return True
+        except Exception as e:
+            logger.error(f"Cannot open device '{device_name}': {e}")
+            self._device_index = previous_index
+            if was_running:
+                try:
+                    self.start_stream()
+                except Exception as e2:
+                    logger.error(f"Could not restore previous device: {e2}")
+            return False
 
     def start_recording(self):
         """Begin recording audio."""
